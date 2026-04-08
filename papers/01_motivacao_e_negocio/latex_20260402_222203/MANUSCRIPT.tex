@@ -1,0 +1,331 @@
+\documentclass[12pt]{article}
+\makeatletter
+\def\input@path{{../../}}
+\makeatother
+\usepackage{sbc-template}
+\makeatletter
+\renewcommand{\inst}[1]{}
+\makeatother
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{longtable,booktabs,array}
+\providecommand{\tightlist}{%%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\sloppy
+\title{Previsao de demanda e otimizacao de estoque: por que este problema importa}
+\author{}
+\address{}
+\begin{document}
+
+\maketitle
+
+\begin{resumo}
+Este primeiro artigo abre a serie "QRC 101" com uma pergunta simples: por que previsao de demanda e um problema bom o bastante para sustentar uma obra inteira, da modelagem classica ate Quantum Reservoir Computing? A resposta tem duas camadas. A primeira e de negocio: erro de previsao vira ruptura, excesso de estoque, capital parado, compra emergencial e perda de margem. A segunda e metodologica: series de demanda sao temporais, sazonais, afetadas por promocoes, feriados e mudancas de comportamento, o que as torna um terreno natural para estudar modelos com memoria. Para concretizar a discussao, adotamos o dataset Favorita como fio condutor da serie e fixamos um recorte experimental reproduzivel: previsao diaria para \texttt{store\_nbr\ =\ 1} e \texttt{family\ =\ BEVERAGES}, com os ultimos 90 dias reservados para teste. Ao final do artigo, o leitor entende o problema de negocio, conhece os arquivos centrais do Favorita, sabe quais metricas guiam a avaliacao e enxerga como os sete artigos se conectam.
+\end{resumo}
+
+\section{1. Introducao}\label{1-introducao}
+
+Poucos problemas de negocio sao tao simples de explicar e tao dificeis de resolver quanto previsao de demanda. A pergunta operacional parece modesta: quanto preciso comprar hoje para atender a demanda de amanha ou da proxima semana? Na pratica, essa pergunta conecta planejamento comercial, operacao logistica, capital de giro e experiencia do cliente. Se a empresa compra menos do que deveria, aparece ruptura e perda de venda. Se compra mais, aparece excesso de estoque, custo de armazenagem e risco de deterioracao ou obsolescencia.
+
+Esse equilibrio e particularmente delicado no varejo alimentar, em que a demanda varia com calendario, promocao, comportamento regional e sazonalidade de curto e medio prazo. O problema nao e apenas prever um numero. O problema e prever uma serie temporal em um ambiente onde o passado importa, mas nao de maneira linear e nem sempre da mesma forma.
+
+Essa combinacao faz do tema uma excelente porta de entrada para Reservoir Computing (RC) e, mais adiante, para Quantum Reservoir Computing (QRC). Em vez de comecar a serie pelo formalismo do reservatorio, comecamos pelo problema que justifica a modelagem temporal.
+
+\section{2. Por que previsao de demanda importa para o negocio}\label{2-por-que-previsao-de-demanda-importa-para-o-negocio}
+
+Em um contexto de estoque, o erro de previsao nao e abstrato. Ele gera consequencias concretas:
+
+\begin{itemize}
+\tightlist
+\item
+  subprevisao aumenta a chance de ruptura, perda de venda e piora do nivel de servico;
+\item
+  superprevisao aumenta estoque medio, capital imobilizado e desperdicio operacional;
+\item
+  previsoes instaveis pioram reabastecimento, negociacao com fornecedores e uso da malha logistica;
+\item
+  previsoes opacas dificultam explicar por que determinada decisao foi tomada.
+\end{itemize}
+
+Do ponto de vista didatico, esse problema e muito forte porque permite ligar tres niveis de analise:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  o nivel de negocio, em que a pergunta e "quanto venderemos?";
+\item
+  o nivel estatistico, em que a pergunta e "qual erro o modelo comete?";
+\item
+  o nivel operacional, em que a pergunta e "o erro ajuda ou atrapalha a decisao de estoque?".
+\end{enumerate}
+
+Ao longo da serie, essas tres perguntas serao mantidas juntas. Isso evita um erro comum em textos introdutorios: ensinar um modelo temporal sem explicar por que alguem se importaria com ele fora do laboratorio.
+
+\section{3. Por que previsao de demanda e dificil}\label{3-por-que-previsao-de-demanda-e-dificil}
+
+Series de demanda no varejo sao dificeis porque combinam padroes recorrentes com perturbacoes localizadas. Em um unico SKU ou familia de produtos, o valor observado em um dia pode refletir:
+
+\begin{itemize}
+\tightlist
+\item
+  efeito do dia da semana;
+\item
+  efeito do mes e de sazonalidade mais longa;
+\item
+  promocao local;
+\item
+  feriado nacional ou regional;
+\item
+  alteracao de fluxo na loja;
+\item
+  mudanca de comportamento do consumidor;
+\item
+  ruido operacional e eventos nao observados.
+\end{itemize}
+
+Isso significa que o problema nao pode ser reduzido a uma linha reta no tempo. Mesmo quando ha sazonalidade clara, ela pode ser modulada por contexto. Uma promocao de bebidas antes de um feriado nao tem o mesmo efeito de uma promocao identica em uma semana comum. Esse e justamente o tipo de dinamica em que memoria e nao linearidade se tornam relevantes.
+
+Para a serie, isso cria um caminho pedagogico natural:
+
+\begin{itemize}
+\tightlist
+\item
+  primeiro, mostramos o problema com baselines simples;
+\item
+  depois, introduzimos RC como um mecanismo de representacao temporal;
+\item
+  por fim, mostramos como QRC preserva a mesma logica geral, mas troca o reservatorio classico por um reservatorio quantico.
+\end{itemize}
+
+\section{4. O caso Favorita}\label{4-o-caso-favorita}
+
+O dataset adotado nesta obra e o da competicao "Corporacion Favorita Grocery Sales Forecasting". Ele e particularmente adequado para fins didaticos porque combina riqueza operacional com uma estrutura de tabelas facil de navegar.
+
+Os arquivos centrais utilizados no projeto sao os seguintes:
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Arquivo & Papel no negocio & Papel no projeto \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{train.csv} & historico diario de vendas & alvo principal da modelagem \\
+\texttt{test.csv} & horizonte de previsao da competicao & referencia estrutural do problema \\
+\texttt{stores.csv} & metadados das lojas & contexto institucional e geografico \\
+\texttt{transactions.csv} & volume de transacoes por loja & proxy de fluxo e atividade \\
+\texttt{holidays\_events.csv} & feriados e eventos & variaveis exogenas de calendario \\
+\texttt{oil.csv} & serie de preco do petroleo & contexto macroeconomico da competicao \\
+\texttt{sample\_submission.csv} & formato de submissao & referencia de saida do desafio \\
+\end{longtable}
+
+Mesmo sem usar toda a complexidade do dataset nos primeiros artigos, a estrutura do Favorita e valiosa porque permite escalar gradualmente o problema. Podemos comecar com uma serie unica e depois abrir caminho para configuracoes mais ricas, sempre sem trocar de dominio.
+
+\section{5. Do problema de negocio ao problema de modelagem}\label{5-do-problema-de-negocio-ao-problema-de-modelagem}
+
+Para transformar previsao de demanda em um problema reproduzivel de modelagem, precisamos fixar algumas escolhas.
+
+\subsection{5.1 Alvo}\label{51-alvo}
+
+O alvo principal da serie e a variavel de demanda diaria \texttt{y}, derivada de \texttt{unit\_sales} em um recorte controlado.
+
+\subsection{5.2 Unidade de analise}\label{52-unidade-de-analise}
+
+Em vez de atacar o dataset inteiro de uma vez, a serie fixa um recorte comum:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{store\_nbr\ =\ 1}
+\item
+  \texttt{family\ =\ BEVERAGES}
+\item
+  frequencia diaria
+\item
+  ultimos \texttt{90} dias reservados para teste
+\end{itemize}
+
+Essa escolha tem tres vantagens:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  e simples o suficiente para ser reproduzida em qualquer maquina;
+\item
+  preserva relevancia de negocio, pois bebidas costumam responder a calendario e promocao;
+\item
+  cria um protocolo comum para baselines, modelos classicos, RC e QRC.
+\end{enumerate}
+
+\subsection{5.3 Variaveis exogenas}\label{53-variaveis-exogenas}
+
+O projeto usa, em diferentes niveis de complexidade, informacoes como:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{onpromotion};
+\item
+  componentes ciclicos de calendario;
+\item
+  informacoes agregadas de contexto, quando apropriado.
+\end{itemize}
+
+No pipeline sequencial usado por RC e QRC, o vetor de entrada parte de:
+
+\begin{itemize}
+\tightlist
+\item
+  demanda previa normalizada;
+\item
+  promocao normalizada;
+\item
+  \texttt{dow\_sin} e \texttt{dow\_cos};
+\item
+  \texttt{month\_sin} e \texttt{month\_cos};
+\item
+  indicador de fim de semana.
+\end{itemize}
+
+\subsection{5.4 Protocolo temporal}\label{54-protocolo-temporal}
+
+Todos os modelos comparados na serie respeitam a mesma regra basica:
+
+\begin{itemize}
+\tightlist
+\item
+  treino no passado;
+\item
+  teste no bloco final dos ultimos 90 dias;
+\item
+  nenhuma informacao do futuro pode entrar no treino ou na engenharia de atributos.
+\end{itemize}
+
+Isso parece elementar, mas e justamente onde muitos experimentos de series temporais falham.
+
+\section{6. O que sera considerado um bom resultado}\label{6-o-que-sera-considerado-um-bom-resultado}
+
+Nesta serie, "bom resultado" nao quer dizer apenas erro pequeno. Quer dizer erro pequeno em um protocolo justo e com interpretacao util.
+
+As metricas principais sao:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{MAE}: media do erro absoluto, facil de interpretar em unidades de venda;
+\item
+  \texttt{RMSE}: penaliza mais fortemente erros grandes;
+\item
+  \texttt{WAPE}: relaciona erro absoluto ao volume total observado;
+\item
+  \texttt{sMAPE}: mede erro percentual de forma simetrica.
+\end{itemize}
+
+Cada metrica responde a uma pergunta diferente:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{MAE}: o erro medio em unidades faz sentido operacional?
+\item
+  \texttt{RMSE}: o modelo esta cometendo erros muito grandes em alguns dias?
+\item
+  \texttt{WAPE}: o erro e alto ou baixo em relacao ao volume da serie?
+\item
+  \texttt{sMAPE}: o desempenho percentual e estavel em diferentes escalas?
+\end{itemize}
+
+Mais adiante, essas metricas serao complementadas por uma leitura de negocio: previsao nao serve apenas para "ganhar benchmark", mas para apoiar decisao de reposicao.
+
+\section{7. Por que este problema e um bom fio condutor para RC e QRC}\label{7-por-que-este-problema-e-um-bom-fio-condutor-para-rc-e-qrc}
+
+O caso Favorita permite ensinar toda a serie com continuidade:
+
+\begin{itemize}
+\tightlist
+\item
+  o problema nasce em uma dor real de negocio;
+\item
+  o sinal e claramente temporal;
+\item
+  ha espaço para baselines simples e modelos mais sofisticados;
+\item
+  o mesmo recorte pode ser usado para comparar familias de modelos muito diferentes.
+\end{itemize}
+
+Isso e importante porque um curso ou serie de artigos sobre QRC pode falhar de dois modos:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  ficar abstrato demais e perder o leitor;
+\item
+  pular para o quantico cedo demais e transformar tudo em curiosidade tecnica.
+\end{enumerate}
+
+Ao manter o mesmo problema de negocio do primeiro ao setimo artigo, a transicao para RC e depois para QRC deixa de parecer arbitraria.
+
+\section{8. Roadmap da serie}\label{8-roadmap-da-serie}
+
+O caminho proposto nesta obra e o seguinte:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  entender o problema de negocio e o recorte experimental;
+\item
+  introduzir Reservoir Computing com o minimo de formalismo necessario;
+\item
+  construir um primeiro pipeline reproduzivel;
+\item
+  explicar memoria, nao linearidade e capacidade de representacao;
+\item
+  estabelecer um protocolo justo de comparacao com baselines e IA classica;
+\item
+  construir a ponte conceitual entre RC classico, reservatorios fisicos e QRC;
+\item
+  fechar com um estudo aplicado de QRC no mesmo problema de demanda.
+\end{enumerate}
+
+Essa ordem foi escolhida para que o leitor nunca precise aceitar um modelo "por fe". Cada novo conceito entra para resolver uma pergunta aberta no artigo anterior.
+
+\section{9. Conclusao}\label{9-conclusao}
+
+Este primeiro artigo fez um trabalho fundamental: antes de falar em reservatorios, falamos em demanda, estoque e decisao. Escolhemos o Favorita como caso central porque ele sustenta tanto a motivacao de negocio quanto a complexidade metodologica necessaria para ensinar modelagem temporal de forma honesta.
+
+Com o recorte experimental definido e as metricas estabelecidas, a serie pode agora dar o proximo passo: explicar Reservoir Computing nao como um truque exotico, mas como um paradigma de modelagem temporal.
+
+\section{Entregaveis associados no repositorio}\label{entregaveis-associados-no-repositorio}
+
+\begin{itemize}
+\tightlist
+\item
+  visao geral da serie: \texttt{papers/README.md}
+\item
+  dataset do projeto: \texttt{dataset/raw/}
+\item
+  benchmark consolidado: \texttt{code/RESULTS.md}
+\end{itemize}
+
+\section{Referencias}\label{referencias}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Hyndman, R. J., Athanasopoulos, G. Forecasting: Principles and Practice.
+\item
+  Kaggle. Corporacion Favorita Grocery Sales Forecasting.
+\end{enumerate}
+
+\section*{Resultados Computacionais Associados}
+
+Os resultados computacionais associados a este artigo estao organizados na subpasta \texttt{computational\_results\_20260402\_222902/}, localizada dentro desta pasta \LaTeX. Esse diretorio contem o arquivo \texttt{REPORT.md}, tabelas em CSV e imagens comparativas apropriadas ao escopo do artigo.
+
+\end{document}

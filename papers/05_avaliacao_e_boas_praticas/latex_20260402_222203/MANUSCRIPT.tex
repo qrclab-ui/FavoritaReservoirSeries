@@ -1,0 +1,294 @@
+\documentclass[12pt]{article}
+\makeatletter
+\def\input@path{{../../}}
+\makeatother
+\usepackage{sbc-template}
+\makeatletter
+\renewcommand{\inst}[1]{}
+\makeatother
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{longtable,booktabs,array}
+\providecommand{\tightlist}{%%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\sloppy
+\title{Avaliacao justa em previsao de demanda: baselines, IA classica e Reservoir Computing}
+\author{}
+\address{}
+\begin{document}
+
+\maketitle
+
+\begin{resumo}
+Se os artigos anteriores mostraram o problema, a intuicao de RC e o primeiro pipeline reproduzivel, este artigo entrega a espinha dorsal metodologica da serie: um protocolo justo de comparacao entre familias de modelos. A partir do mesmo recorte do Favorita, com a mesma janela de teste e as mesmas metricas, comparamos Seasonal Naive, ETS, Prophet, XGBoost, LSTM, RC e QRC. O benchmark atual coloca ETS na lideranca (\texttt{MAE\ =\ 216.303}, \texttt{RMSE\ =\ 307.638}, \texttt{WAPE\ =\ 0.0999}, \texttt{sMAPE\ =\ 0.1042}), seguido por XGBoost e Prophet. O RC supera a LSTM simples do projeto, mas permanece abaixo dos modelos classicos mais fortes. O QRC, por sua vez, fecha o benchmark com uma implementacao funcional, embora ainda nao competitiva neste recorte. O valor central deste artigo nao esta apenas na tabela final, mas nas regras que tornam a tabela defensavel.
+\end{resumo}
+
+\section{1. Introducao}\label{1-introducao}
+
+Comparar modelos temporais parece facil ate o momento em que percebemos quantas comparacoes sao injustas por construcao. Em previsao de demanda, basta um pequeno vazamento de informacao, um split mal definido ou uma metrica escolhida sem criterio para transformar o experimento inteiro em uma ilustraçao enganosa.
+
+Por isso, este artigo assume uma posicao clara: antes de discutir QRC, precisamos construir um benchmark digno de comparacao. Isso significa:
+
+\begin{itemize}
+\tightlist
+\item
+  mesmo recorte de dados;
+\item
+  mesmo horizonte de teste;
+\item
+  metricas comuns;
+\item
+  interpretacao metodologica e de negocio.
+\end{itemize}
+
+\section{2. Por que avaliacao em series temporais e delicada}\label{2-por-que-avaliacao-em-series-temporais-e-delicada}
+
+Series temporais nao admitem o mesmo tipo de embaralhamento tipico de problemas tabulares iid. Em forecasting, o tempo nao e apenas mais uma coluna; ele define a direcao causal do problema.
+
+Os erros mais comuns sao:
+
+\begin{itemize}
+\tightlist
+\item
+  usar informacao do futuro na engenharia de atributos;
+\item
+  normalizar usando o dataset inteiro;
+\item
+  misturar treino e teste em rolling features mal construidas;
+\item
+  comparar modelos em horizontes ou variaveis diferentes;
+\item
+  declarar um vencedor com base em uma unica metrica.
+\end{itemize}
+
+Uma boa avaliacao em series temporais precisa ser mais parecida com o ambiente de producao do que com um jogo de leaderboard.
+
+\section{3. Protocolo experimental da serie}\label{3-protocolo-experimental-da-serie}
+
+O protocolo adotado no projeto foi desenhado para ser simples, legivel e reaproveitavel.
+
+\subsection{3.1 Recorte comum}\label{31-recorte-comum}
+
+\begin{itemize}
+\tightlist
+\item
+  dataset: Favorita \texttt{train.csv}
+\item
+  serie: \texttt{store\_nbr\ =\ 1}, \texttt{family\ =\ BEVERAGES}
+\item
+  frequencia: diaria
+\item
+  janela de teste: ultimos 90 dias
+\end{itemize}
+
+\subsection{3.2 Regra de split}\label{32-regra-de-split}
+
+Todo treino ocorre antes do bloco final de teste. Nenhum modelo recebe acesso direto a observacoes futuras.
+
+\subsection{3.3 Modelos avaliados}\label{33-modelos-avaliados}
+
+\begin{itemize}
+\tightlist
+\item
+  Seasonal Naive
+\item
+  ETS
+\item
+  Prophet
+\item
+  XGBoost
+\item
+  LSTM
+\item
+  RC
+\item
+  QRC
+\end{itemize}
+
+\subsection{3.4 Metricas avaliadas}\label{34-metricas-avaliadas}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{MAE}
+\item
+  \texttt{RMSE}
+\item
+  \texttt{WAPE}
+\item
+  \texttt{sMAPE}
+\end{itemize}
+
+Essas metricas foram escolhidas porque combinam interpretabilidade absoluta, sensibilidade a erros grandes e leitura relativa ao volume da serie.
+
+\section{4. Benchmark comparativo atual}\label{4-benchmark-comparativo-atual}
+
+Os resultados atuais do projeto sao:
+
+\begin{longtable}[]{@{}llrrrr@{}}
+\toprule\noalign{}
+Modelo & Familia & MAE & RMSE & WAPE & sMAPE \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+ETS & baseline estatistico & 216.303 & 307.638 & 0.0999 & 0.1042 \\
+XGBoost & ML classico & 256.666 & 332.828 & 0.1185 & 0.1237 \\
+Prophet & baseline estatistico & 257.584 & 321.818 & 0.1189 & 0.1319 \\
+Seasonal Naive & baseline estatistico & 259.067 & 352.280 & 0.1196 & 0.1361 \\
+RC & reservoir computing classico & 324.294 & 423.417 & 0.1498 & 0.1653 \\
+LSTM & DL classico & 371.827 & 461.342 & 0.1717 & 0.1822 \\
+QRC & reservoir computing quantico & 441.286 & 525.325 & 0.2038 & 0.2269 \\
+\end{longtable}
+
+Essa tabela ja faz um trabalho importante para a serie:
+
+\begin{itemize}
+\tightlist
+\item
+  mostra que baselines estatisticos continuam fortissimos;
+\item
+  impede que modelos mais complexos sejam julgados contra referencias fracas;
+\item
+  fixa um ponto de comparacao unico para todos os artigos seguintes.
+\end{itemize}
+
+\section{5. Leitura dos resultados}\label{5-leitura-dos-resultados}
+
+\subsection{5.1 ETS na lideranca}\label{51-ets-na-lideranca}
+
+O melhor desempenho do ETS neste recorte e pedagogicamente revelador. Ele lembra que, quando a serie tem sazonalidade forte e estrutura relativamente regular, um modelo estatistico bem calibrado pode ser extremamente competitivo.
+
+\subsection{5.2 XGBoost e Prophet como faixa intermediaria forte}\label{52-xgboost-e-prophet-como-faixa-intermediaria-forte}
+
+XGBoost e Prophet aparecem como modelos muito serios para um problema de negocio real. Eles nao eliminam a necessidade de RC, mas elevam bastante o nivel da comparacao.
+
+\subsection{5.3 O que o RC entrega}\label{53-o-que-o-rc-entrega}
+
+O RC nao ganha do topo do benchmark, mas supera a LSTM simples deste projeto. Isso mostra que o paradigma e capaz de sustentar uma representacao temporal competitiva sem o custo de treinar toda a dinamica recorrente.
+
+\subsection{5.4 O que o QRC entrega}\label{54-o-que-o-qrc-entrega}
+
+O QRC ainda nao e competitivo com os melhores modelos classicos neste recorte. Ainda assim, ele entra no benchmark com valor metodologico alto:
+
+\begin{itemize}
+\tightlist
+\item
+  funciona de ponta a ponta;
+\item
+  respeita o mesmo split temporal;
+\item
+  usa as mesmas metricas;
+\item
+  pode ser analisado dentro do mesmo quadro de comparacao.
+\end{itemize}
+
+Esse e um ganho importante para uma serie introdutoria. O objetivo nao e inflar o QRC, mas posiciona-lo corretamente.
+
+\section{6. O que significa uma comparacao "justa"}\label{6-o-que-significa-uma-comparacao-justa}
+
+Comparacao justa nao significa exigir que todos os modelos tenham a mesma estrutura interna. Significa exigir que respondam ao mesmo problema sob as mesmas regras.
+
+No contexto desta serie, isso quer dizer:
+
+\begin{itemize}
+\tightlist
+\item
+  mesmo alvo;
+\item
+  mesmo horizonte de teste;
+\item
+  mesmas metricas;
+\item
+  mesma serie;
+\item
+  nenhuma vantagem informacional indevida.
+\end{itemize}
+
+Essa definicao simples evita um numero enorme de confusoes.
+
+\section{7. Checklist de boas praticas}\label{7-checklist-de-boas-praticas}
+
+Para tornar a serie reutilizavel como material didatico, o protocolo do projeto pode ser resumido no seguinte checklist:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  definir um recorte de negocio claro;
+\item
+  separar treino e teste por ordem temporal;
+\item
+  garantir que features usem apenas informacao disponivel no instante;
+\item
+  comparar com pelo menos um baseline forte;
+\item
+  reportar mais de uma metrica;
+\item
+  interpretar resultados junto com custo e complexidade;
+\item
+  guardar artefatos e configuracoes no repositorio.
+\end{enumerate}
+
+Esse checklist e simples o bastante para ser ensinado cedo e forte o bastante para suportar a chegada do QRC.
+
+\section{8. Regras herdadas para a fase QRC}\label{8-regras-herdadas-para-a-fase-qrc}
+
+Quando a serie entra em QRC, algumas tentacoes aparecem: reduzir demais o problema, trocar metrica, mudar serie ou relaxar comparacao. Este artigo fixa a regra contraria. A fase QRC herda o protocolo ja estabelecido.
+
+Assim, o artigo final pode discutir o que muda no reservatorio sem mudar o problema que esta sendo resolvido.
+
+\section{9. Conclusao}\label{9-conclusao}
+
+O maior resultado deste artigo nao e apenas a tabela comparativa. E a instituicao de um padrao metodologico para a obra inteira. Com esse benchmark, o leitor aprende que:
+
+\begin{itemize}
+\tightlist
+\item
+  previsao de demanda exige rigor experimental;
+\item
+  modelos classicos continuam sendo referencias importantes;
+\item
+  RC e QRC so fazem sentido quando entram em comparacoes honestas.
+\end{itemize}
+
+Esse e o solo sobre o qual a ponte para QRC sera construida.
+
+\section{Entregaveis associados no repositorio}\label{entregaveis-associados-no-repositorio}
+
+\begin{itemize}
+\tightlist
+\item
+  benchmark consolidado: \texttt{code/RESULTS.md}
+\item
+  baselines: \texttt{code/baselines/}
+\item
+  modelos classicos: \texttt{code/classical/}
+\item
+  RC: \texttt{code/rc/}
+\item
+  QRC: \texttt{code/qrc/}
+\end{itemize}
+
+\section{Referencias}\label{referencias}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Hyndman, R. J., Athanasopoulos, G. Forecasting: Principles and Practice.
+\item
+  Taylor, S. J., Letham, B. Forecasting at scale.
+\item
+  Chen, T., Guestrin, C. XGBoost: A scalable tree boosting system.
+\item
+  Hochreiter, S., Schmidhuber, J. Long short-term memory.
+\end{enumerate}
+
+\section*{Resultados Computacionais Associados}
+
+Os resultados computacionais associados a este artigo estao organizados na subpasta \texttt{computational\_results\_20260402\_222902/}, localizada dentro desta pasta \LaTeX. Esse diretorio contem o arquivo \texttt{REPORT.md}, tabelas em CSV e imagens comparativas apropriadas ao escopo do artigo.
+
+\end{document}

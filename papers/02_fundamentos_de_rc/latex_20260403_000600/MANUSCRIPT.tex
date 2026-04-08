@@ -1,0 +1,354 @@
+\documentclass[12pt]{article}
+        \makeatletter
+        \def\input@path{{../../}}
+        \makeatother
+        \usepackage{sbc-template}
+        \makeatletter
+        \renewcommand{\inst}[1]{}
+        \makeatother
+        \usepackage{graphicx,url}
+        \usepackage[utf8]{inputenc}
+        \usepackage[T1]{fontenc}
+        \usepackage[brazil]{babel}
+        \usepackage{longtable,booktabs,array}
+        \usepackage{amsmath,amssymb}
+        \providecommand{\tightlist}{%%
+          \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+        \sloppy
+        \title{Fundamentos de Reservoir Computing: da intuição ao modelo mínimo}
+        \author{}
+        \address{}
+        \begin{document}
+
+        \maketitle
+
+        \begin{resumo}
+        Este artigo apresenta Reservoir Computing (RC) como o primeiro grande degrau teórico da série. O foco não é apenas definir o termo, mas mostrar como um reservatorio transforma uma sequencia de entradas em uma representação dinâmica rica e por que isso e útil em previsão temporal. Partimos da intuição de memoria distribuída, formalizamos o modelo mínimo com equações, conectamos cada elemento do formalismo a arquivos reais do projeto e mostramos artefatos computacionais intermediários do caso Favorita. Ao final, o leitor consegue ler o código do RC clássico do projeto, entende o papel do \texttt{washout}, sabe o que e treinado e o que não e treinado e fica preparado para executar o primeiro pipeline completo no artigo seguinte.
+        \end{resumo}
+
+        \subsection{1. O que o leitor vai aprender}\label{1-o-que-o-leitor-vai-aprender}
+
+Ao final deste artigo, você será capaz de:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  definir um reservatorio clássico de forma matemática;
+\item
+  distinguir estado interno, vetor de entrada e readout;
+\item
+  explicar o papel de \texttt{spectral\_radius}, \texttt{leak\_rate} e \texttt{washout};
+\item
+  mapear as equações de RC para a implementação em \texttt{code/rc/model.py};
+\item
+  interpretar artefatos intermediários, e não apenas métricas finais.
+\end{enumerate}
+
+\subsection{2. A intuição: um reservatorio e uma memoria dinâmica}\label{2-a-intuiuxe7uxe3o-um-reservatorio-e-uma-memoria-dinuxe2mica}
+
+Em um modelo tabular tradicional, as features costumam ser calculadas explicitamente: lags, médias moveis, indicadores de calendário e assim por diante. Em RC, a ideia e diferente. Em vez de escrever manualmente toda a representação temporal, injetamos a sequencia em um sistema dinamico recorrente e usamos seus estados internos como uma base de representação.
+
+A intuição mais útil para iniciantes e esta:
+
+\begin{itemize}
+\tightlist
+\item
+  a entrada \(u_t\) perturba o sistema;
+\item
+  o estado \(x_t\) carrega um resumo dinamico do passado recente;
+\item
+  o readout linear aprende a converter esse resumo em previsão.
+\end{itemize}
+
+RC é atraente didaticamente porque separa o problema em duas partes:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  um mecanismo fixo de representação temporal;
+\item
+  uma camada simples de regressão treinável.
+\end{enumerate}
+
+\subsection{3. O modelo mínimo de RC}\label{3-o-modelo-muxednimo-de-rc}
+
+No projeto, o reservatorio clássico e implementado com a seguinte dinâmica:
+
+\[
+x_t = (1 - \alpha) x_{t-1} + \alpha \tanh(W_{res} x_{t-1} + W_{in} u_t + b),
+\]
+
+em que:
+
+\begin{itemize}
+\tightlist
+\item
+  \(u_t \in \mathbb{R}^d\) e o vetor de entrada no tempo \(t\);
+\item
+  \(x_t \in \mathbb{R}^N\) e o estado do reservatorio;
+\item
+  \(W_{res}\) e a matriz recorrente interna;
+\item
+  \(W_{in}\) projeta a entrada para o espaco do reservatorio;
+\item
+  \(b\) e um vetor de bias;
+\item
+  \(\alpha\) e o \texttt{leak\_rate}.
+\end{itemize}
+
+No código, isso aparece em \texttt{EchoStateReservoir.step()}:
+
+\begin{verbatim}
+pre_activation = (
+    self.recurrent_weights @ self.state
+    + self.input_weights @ input_vector
+    + self.bias
+)
+new_state = np.tanh(pre_activation)
+self.state = (1.0 - self.config.leak_rate) * self.state + self.config.leak_rate * new_state
+\end{verbatim}
+
+A previsão é feita por um readout linear:
+
+\[
+\hat{y}_t = W_{out} \phi_t,
+\qquad
+\phi_t = [1; u_t; x_t].
+\]
+
+No projeto, \texttt{\textbackslash{}phi\_t} e construída por \texttt{\_feature\_vector()} e \texttt{W\_out} e ajustado via regressão Ridge.
+
+\subsection{4. O que e treinado e o que não e treinado}\label{4-o-que-e-treinado-e-o-que-nuxe3o-e-treinado}
+
+Um dos pontos mais didaticos de RC e a divisão entre dinâmica fixa e leitura treinável.
+
+No projeto:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{W\_in}, \texttt{W\_res} e \texttt{b} sao inicializados aleatoriamente e mantidos fixos;
+\item
+  apenas o readout linear e ajustado com supervisão.
+\end{itemize}
+
+Formalmente, o treinamento resolve
+
+\[
+W_{out}^* = \arg\min_{W_{out}}
+\|Y - \Phi W_{out}\|_2^2 + \lambda \|W_{out}\|_2^2,
+\]
+
+em que \(\Phi\) e a matriz de features acumuladas ao longo do tempo e \(\lambda\) e o hiperparametro de regularização Ridge.
+
+Essa escolha reduz o custo de treinamento em relação a RNNs totalmente treináveis e, ao mesmo tempo, preserva uma representação temporal rica.
+
+\subsection{5. Como o tempo entra no modelo}\label{5-como-o-tempo-entra-no-modelo}
+
+No projeto, o vetor de entrada sequencial e construído em \texttt{code/common/sequential\_features.py} com sete componentes:
+
+\begin{itemize}
+\tightlist
+\item
+  demanda prévia normalizada;
+\item
+  promoção normalizada;
+\item
+  \texttt{dow\_sin}, \texttt{dow\_cos};
+\item
+  \texttt{month\_sin}, \texttt{month\_cos};
+\item
+  indicador de fim de semana.
+\end{itemize}
+
+Em notação compacta,
+
+\[
+u_t =
+\begin{bmatrix}
+\widetilde{y}_{t-1} &
+\widetilde{p}_t &
+\sin(2\pi \, \mathrm{dow}_t / 7) &
+\cos(2\pi \, \mathrm{dow}_t / 7) &
+\sin(2\pi \, \mathrm{month}_t / 12) &
+\cos(2\pi \, \mathrm{month}_t / 12) &
+\mathbb{1}_{\mathrm{weekend}}
+\end{bmatrix}^\top.
+\]
+
+Esse vetor coloca em uma mesma representação:
+
+\begin{itemize}
+\tightlist
+\item
+  memoria de curtissimo prazo, via \(\widetilde{y}_{t-1}\);
+\item
+  contexto exógeno, via promoção;
+\item
+  ciclo temporal, via senos e cossenos.
+\end{itemize}
+
+\subsection{6. O papel do washout}\label{6-o-papel-do-washout}
+
+Nos primeiros instantes da simulação, o estado do reservatorio ainda esta fortemente contaminado pela inicialização. Por isso, o projeto descarta os primeiros passos antes de treinar o readout.
+
+Se chamarmos o \texttt{washout} de \(w\), o treino do readout usa apenas os tempos \(t \ge w\):
+
+\[
+\Phi = [\phi_w, \phi_{w+1}, \dots, \phi_T]^\top.
+\]
+
+Em \texttt{fit\_rc\_readout()}, isso aparece no teste \texttt{if\ idx\ \textgreater{}=\ config.washout}.
+
+O \texttt{washout} não e um detalhe de implementação. Ele e uma parte conceitual do pipeline, porque separa a transiente inicial da dinâmica que realmente queremos aproveitar.
+
+\subsection{7. Como o projeto implementa RC no caso Favorita}\label{7-como-o-projeto-implementa-rc-no-caso-favorita}
+
+A tabela abaixo resume o pipeline implementado.
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Objeto & Dimensao no projeto & Origem \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Vetor de entrada \(u_t\) & 7 & \texttt{scaled\_input\_vector()} \\
+Estado do reservatorio \(x_t\) & 80 & \texttt{RCConfig.n\_reservoir} \\
+Vetor de features \([1; u_t; x_t]\) & 88 & \texttt{\_feature\_vector()} \\
+Readout & 1 saida & Ridge linear sobre as features \\
+\end{longtable}
+
+O fluxo completo do código e o seguinte:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{build\_scaler\_state()} calcula médias e desvios para normalizacao;
+\item
+  \texttt{scaled\_input\_vector()} constroi \(u_t\);
+\item
+  \texttt{EchoStateReservoir.step()} atualiza \(x_t\);
+\item
+  \texttt{\_feature\_vector()} monta \(\phi_t = [1; u_t; x_t]\);
+\item
+  \texttt{Ridge.fit()} estima o readout;
+\item
+  \texttt{forecast\_rc()} faz previsão recursiva no bloco de teste.
+\end{enumerate}
+
+O trecho central do treinamento e este:
+
+\begin{verbatim}
+input_vector = scaled_input_vector(prev_y, row, scaler=scaler)
+state = reservoir.step(input_vector)
+feature_rows.append(_feature_vector(state, input_vector))
+targets.append(float(row["y"]))
+\end{verbatim}
+
+Isso mostra a ideia central de RC em sua forma mais simples: o modelo não aprende uma representação temporal diretamente por backpropagation; ele coleta estados dinamicos e aprende apenas como le-los.
+
+\subsection{8. O que os artefatos intermediários mostram}\label{8-o-que-os-artefatos-intermediuxe1rios-mostram}
+
+O artigo não precisa esperar a métrica final para ensinar alguma coisa. Os artefatos computacionais deste modulo mostram o pipeline em um nivel mais interno.
+
+\pandocbounded{\includegraphics[keepaspectratio,alt={Exemplo dos sinais de entrada sequenciais usados pelo RC.}]{computational_results_20260402_222902/sequential_inputs_example.png}}
+
+A imagem de entrada sequencial mostra que o reservatorio não recebe apenas uma série de vendas crua. Ele recebe uma codificacao temporal e exógena compacta.
+
+\pandocbounded{\includegraphics[keepaspectratio,alt={Heatmap dos estados internos do reservatorio clássico no recorte adotado no Favorita.}]{computational_results_20260402_222902/rc_state_heatmap.png}}
+
+O heatmap dos estados ilustra duas ideias importantes:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  unidades diferentes respondem de modos diferentes ao mesmo estimulo;
+\item
+  a memoria do reservatorio não e um unico lag explícito, mas uma combinacao distribuída de estados.
+\end{enumerate}
+
+Em outras palavras, RC constroi uma base dinâmica de features sem precisar enumerar manualmente toda a interação temporal.
+
+\subsection{9. Comparando RC com outras famílias de modelo}\label{9-comparando-rc-com-outras-famuxedlias-de-modelo}
+
+Vale situar RC entre outros paradigmas que também aparecem na série:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{Seasonal\ Naive}, \texttt{ETS} e \texttt{Prophet} modelam estrutura temporal de forma mais explícita;
+\item
+  \texttt{XGBoost} usa engenharia de atributos tabulares;
+\item
+  \texttt{LSTM} aprende dinâmica recorrente via gradiente;
+\item
+  \texttt{RC} fixa a dinâmica recorrente e treina apenas o readout.
+\end{itemize}
+
+Essa posicao intermediária e pedagogicamente muito poderosa. RC é mais rico do que um baseline ingenuo, mas muito mais simples de treinar do que uma RNN completa.
+
+\subsection{10. Passo-a-passo para estudar ou modificar o RC do projeto}\label{10-passo-a-passo-para-estudar-ou-modificar-o-rc-do-projeto}
+
+Um leitor que queira estudar a implementação deve seguir esta ordem:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  abrir \texttt{code/common/sequential\_features.py};
+\item
+  verificar como o vetor \texttt{u\_t} e construído;
+\item
+  abrir \texttt{code/rc/model.py} e localizar \texttt{RCConfig};
+\item
+  ler \texttt{EchoStateReservoir.step()} junto da equação do artigo;
+\item
+  ler \texttt{fit\_rc\_readout()} e localizar o \texttt{washout};
+\item
+  executar \texttt{python\ code/rc/run.py};
+\item
+  validar o comportamento com \texttt{pytest\ code/rc/test\_model.py}.
+\end{enumerate}
+
+Essa ordem importa. Se o leitor abrir apenas \texttt{run.py}, perde a correspondencia entre teoria e implementação.
+
+\subsection{11. Conclusao}\label{11-conclusao}
+
+RC já esta completamente formulado no contexto do projeto. Temos uma definicao matemática, uma implementação concreta e artefatos intermediários que mostram a representação temporal em acao. O próximo passo natural e colocar esse modelo em confronto com um baseline forte, medindo o que ele realmente entrega no recorte adotado no Favorita.
+
+\subsection{Entregaveis associados no repositorio}\label{entregaveis-associados-no-repositorio}
+
+\begin{itemize}
+\tightlist
+\item
+  implementação do RC: \texttt{code/rc/model.py}
+\item
+  execucao do RC: \texttt{code/rc/run.py}
+\item
+  testes do RC: \texttt{code/rc/test\_model.py}
+\item
+  construcao de entrada sequencial: \texttt{code/common/sequential\_features.py}
+\item
+  artefatos deste artigo: \texttt{computational\_results\_20260402\_222902/}
+\end{itemize}
+
+\subsection{Referencias}\label{referencias}
+
+\begin{itemize}
+\tightlist
+\item
+  Jaeger, H. The "echo state" approach to analysing and training recurrent neural networks.
+\item
+  Lukosevicius, M.; Jaeger, H. Reservoir computing approaches to recurrent neural network training.
+\item
+  Lukosevicius, M. A practical guide to applying echo state networks.
+\item
+  Fujii, K.; Nakajima, K. Harnessing disordered-ensemble quantum dynamics for machine learning.
+\end{itemize}
+
+        \end{document}

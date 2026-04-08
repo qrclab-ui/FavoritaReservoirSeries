@@ -1,0 +1,27 @@
+{
+  "selection_rule": "lowest average rank across mean MAE, RMSE, WAPE, and sMAPE; tie-break by mean WAPE, then mean RMSE, then mean MAE",
+  "broad_qubit_grid": [5, 6, 7, 8, 10, 12, 14, 16],
+  "broad_window_grid": [3, 5, 7, 9, 11, 13],
+  "refine_seeds": [3, 7, 11],
+  "best": {
+    "n_qubits": 14,
+    "window": 7,
+    "mean_mae": 436.81856151776645,
+    "mean_rmse": 522.1605703012893,
+    "mean_wape": 0.20171097396421253,
+    "mean_smape": 0.22652428855079196,
+    "avg_rank": 1.25
+  },
+  "best_by_rmse": {
+    "n_qubits": 8,
+    "window": 5,
+    "mean_mae": 447.9469031444376,
+    "mean_rmse": 520.9134984039423,
+    "mean_wape": 0.20684974055032754,
+    "mean_smape": 0.23126652228469705,
+    "avg_rank": 3.5
+  },
+  "artifacts": {
+    "focus_summary_csv": "/Users/anderson/Desktop/QRCNotebooks/favorita_reservoir_series/code/qrc/experiments/results/qrc_qubits_window_focus_summary.csv"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "selection_rule": "lowest objective_score where objective_score = geometric mean of normalized metric ratios times a small complexity penalty",
+  "reference_strategy": "best_non_qrc",
+  "reference_metrics": {
+    "mae": 216.30277126607479,
+    "rmse": 307.637516124997,
+    "wape": 0.09988275798454975,
+    "smape": 0.10421723510745443
+  },
+  "objective_config": {
+    "mae_weight": 0.3,
+    "rmse_weight": 0.3,
+    "wape_weight": 0.2,
+    "smape_weight": 0.2,
+    "complexity_weight": 0.05,
+    "qubit_bounds": [
+      4,
+      16
+    ],
+    "window_bounds": [
+      3,
+      13
+    ]
+  },
+  "best": {
+    "n_qubits": 8,
+    "window": 5,
+    "objective_score": 2.0030283464272673,
+    "mean_mae": 447.9469031444376,
+    "mean_rmse": 520.9134984039423,
+    "mean_wape": 0.2068497405503275,
+    "mean_smape": 0.231266522284697
+  },
+  "artifact": "/Users/anderson/Desktop/QRCNotebooks/favorita_reservoir_series/code/qrc/experiments/results/qrc_objective_focus_summary.csv"
+}

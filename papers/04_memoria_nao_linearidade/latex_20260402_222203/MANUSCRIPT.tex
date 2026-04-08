@@ -1,0 +1,242 @@
+\documentclass[12pt]{article}
+\makeatletter
+\def\input@path{{../../}}
+\makeatother
+\usepackage{sbc-template}
+\makeatletter
+\renewcommand{\inst}[1]{}
+\makeatother
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{longtable,booktabs,array}
+\providecommand{\tightlist}{%%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\sloppy
+\title{Por que Reservoir Computing funciona: memoria, nao linearidade e capacidade de representacao}
+\author{}
+\address{}
+\begin{document}
+
+\maketitle
+
+\begin{resumo}
+Depois do primeiro experimento reproduzivel, a pergunta natural deixa de ser "o RC ganhou?" e passa a ser "o que exatamente o RC esta tentando fazer?". Este artigo responde a essa pergunta em tres eixos: memoria, nao linearidade e capacidade de representacao. Em vez de tratar o reservatorio como uma caixa-preta, mostramos como hiperparametros como \texttt{n\_reservoir}, \texttt{spectral\_radius}, \texttt{leak\_rate} e \texttt{washout} alteram o comportamento do modelo. O objetivo nao e vender RC como solucao universal, mas oferecer uma leitura mecanica do metodo. Ao final, o leitor entende por que um reservatorio pode capturar dependencias temporais e misturas nao lineares e tambem por que isso, sozinho, ainda nao garante superioridade sobre baselines fortes.
+\end{resumo}
+
+\section{1. Introducao}\label{1-introducao}
+
+No artigo anterior, o RC nao venceu o Seasonal Naive no recorte inicial do Favorita. Esse resultado pode ser lido de duas formas. A leitura superficial diria: "o metodo nao funcionou". A leitura interessante diz: "agora temos uma oportunidade de entender o metodo".
+
+Reservoir Computing merece ser estudado nao apenas porque pode performar bem, mas porque organiza de forma muito clara uma pergunta central em modelagem temporal: como transformar uma sequencia em uma representacao dinamica que preserve informacao util sobre o passado?
+
+Para responder a isso, precisamos abrir a caixa do reservatorio.
+
+\section{2. Memoria: o passado precisa continuar presente}\label{2-memoria-o-passado-precisa-continuar-presente}
+
+Em forecasting, memoria significa que a previsao de hoje depende de sinais que nao estao apenas na observacao atual. No Favorita, isso aparece de modo direto:
+
+\begin{itemize}
+\tightlist
+\item
+  a demanda de um dia carrega padroes do dia da semana;
+\item
+  promocao atual pode herdar efeito da promocao anterior;
+\item
+  o comportamento perto de feriados costuma depender do contexto recente.
+\end{itemize}
+
+O reservatorio tenta condensar esse historico em um estado interno \texttt{x\_t}. Esse estado nao e um buffer literal dos ultimos dias. Ele e uma compressao dinamica do passado.
+
+\subsection{2.1 O papel do leak rate}\label{21-o-papel-do-leak-rate}
+
+No projeto, o RC usa \texttt{leak\_rate\ =\ 0.15}. Em termos intuitivos:
+
+\begin{itemize}
+\tightlist
+\item
+  leak rate baixo faz o estado mudar mais devagar e guardar mais passado;
+\item
+  leak rate alto faz o estado reagir mais rapidamente ao presente.
+\end{itemize}
+
+Isso cria um trade-off importante. Se a dinamica ficar lenta demais, o modelo pode suavizar em excesso. Se ficar rapida demais, pode esquecer o passado cedo demais.
+
+\subsection{2.2 O papel do washout}\label{22-o-papel-do-washout}
+
+O \texttt{washout\ =\ 14} usado no projeto lembra que memoria util nao e o mesmo que inicializacao arbitraria. Antes de treinar o readout, damos tempo para que o reservatorio entre em um regime ditado pelos dados e nao pelo estado inicial.
+
+\section{3. Nao linearidade: por que uma serie de demanda nao cabe em uma regra unica}\label{3-nao-linearidade-por-que-uma-serie-de-demanda-nao-cabe-em-uma-regra-unica}
+
+Muitos padroes do varejo nao sao lineares. Um mesmo aumento de promocao nao produz sempre o mesmo efeito. O impacto de um sabado pode depender da epoca do mes. A proximidade de um feriado pode amplificar um comportamento que, em outra semana, seria pequeno.
+
+A nao linearidade do reservatorio, tipicamente implementada com \texttt{tanh}, ajuda a produzir uma resposta mais rica a combinacoes de sinais. Ela nao "resolve" toda a complexidade do problema, mas permite que o estado interno misture historico e contexto de forma menos rigida do que um modelo linear puro.
+
+No projeto, essa nao linearidade atua sobre um vetor de entrada pequeno e interpretavel:
+
+\begin{itemize}
+\tightlist
+\item
+  demanda previa;
+\item
+  promocao;
+\item
+  codificacoes ciclicas de calendario;
+\item
+  indicador de fim de semana.
+\end{itemize}
+
+Essa escolha e pedagogica porque mostra que nao e preciso comecar com centenas de features para discutir representacao temporal.
+
+\section{4. Capacidade de representacao: por que tamanho importa, mas nao sozinho}\label{4-capacidade-de-representacao-por-que-tamanho-importa-mas-nao-sozinho}
+
+Um reservatorio maior tende a oferecer um espaco de estados mais rico. No entanto, mais unidades nao significam automaticamente melhor desempenho. O tamanho do reservatorio controla quanta diversidade de resposta dinamica o modelo pode sustentar, mas essa diversidade so ajuda quando o readout consegue explorá-la e quando ela e coerente com o problema.
+
+No projeto, o RC atual usa \texttt{n\_reservoir\ =\ 80}. Esse valor foi escolhido como um compromisso entre:
+
+\begin{itemize}
+\tightlist
+\item
+  simplicidade didatica;
+\item
+  custo computacional moderado;
+\item
+  capacidade suficiente para um primeiro experimento.
+\end{itemize}
+
+Essa decisao reforca um ponto importante para o leitor: hiperparametro em RC nao e decoracao. Ele expressa uma hipotese sobre a dinamica necessaria para o problema.
+
+\section{5. Como ler os hiperparametros do RC}\label{5-como-ler-os-hiperparametros-do-rc}
+
+Uma boa forma de ensinar RC e mostrar o que cada hiperparametro faz quando esta "baixo demais", "equilibrado" ou "alto demais". A tabela abaixo resume essa leitura.
+
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+Hiperparametro & Muito baixo & Faixa equilibrada & Muito alto \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{n\_reservoir} & pouca diversidade de estados & representacao rica e controlavel & custo maior e risco de redundancia \\
+\texttt{spectral\_radius} & dinamica curta e muito contrativa & memoria estavel e resposta temporal rica & risco de instabilidade e excesso de persistencia \\
+\texttt{leak\_rate} & memoria longa, resposta lenta & equilibrio entre passado e presente & reatividade alta e pouca memoria \\
+\texttt{washout} & estado inicial contamina treino & treino sobre dinamica estabilizada & descarte desnecessario de dados \\
+\texttt{ridge\_alpha} & risco de sobreajuste no readout & regularizacao moderada & leitura excessivamente rigida \\
+\end{longtable}
+
+Essa tabela substitui bem, para fins didaticos, a ideia vaga de "fazer tuning". Em vez de pensar tuning como busca cega, o leitor passa a pensar tuning como ajuste de propriedades dinamicas.
+
+\section{6. O que o resultado atual do RC sugere}\label{6-o-que-o-resultado-atual-do-rc-sugere}
+
+No benchmark atual do projeto, o RC obteve:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{MAE\ =\ 324.294}
+\item
+  \texttt{RMSE\ =\ 423.417}
+\item
+  \texttt{WAPE\ =\ 0.1498}
+\item
+  \texttt{sMAPE\ =\ 0.1653}
+\end{itemize}
+
+Esses numeros colocam o RC acima da LSTM simples do projeto, mas abaixo de ETS, XGBoost, Prophet e Seasonal Naive.
+
+Essa posicao intermediaria sugere uma leitura produtiva:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  o reservatorio captura algo relevante, pois nao fracassa completamente;
+\item
+  o pipeline ainda nao extrai o maximo valor da representacao temporal;
+\item
+  modelos classicos fortes continuam sendo referencias serias para previsao de demanda.
+\end{enumerate}
+
+Em outras palavras, o RC ensina mesmo quando nao vence.
+
+\section{7. O que RC faz bem e o que ainda nao faz bem neste problema}\label{7-o-que-rc-faz-bem-e-o-que-ainda-nao-faz-bem-neste-problema}
+
+\subsection{7.1 O que RC faz bem}\label{71-o-que-rc-faz-bem}
+
+\begin{itemize}
+\tightlist
+\item
+  integra historico recente e contexto exogeno em um unico estado;
+\item
+  produz uma representacao dinamica reutilizavel por um readout simples;
+\item
+  oferece uma linguagem clara para falar de memoria temporal.
+\end{itemize}
+
+\subsection{7.2 O que RC ainda nao faz bem aqui}\label{72-o-que-rc-ainda-nao-faz-bem-aqui}
+
+\begin{itemize}
+\tightlist
+\item
+  nao supera uma sazonalidade semanal forte quando o baseline ja a captura muito bem;
+\item
+  ainda opera em um recorte pequeno e com feature set enxuto;
+\item
+  depende de tuning cuidadoso para explorar melhor a estrutura da serie.
+\end{itemize}
+
+Essa avaliacao e especialmente importante porque prepara a ponte para QRC. Se o leitor nao entender RC como paradigma, QRC parecerá apenas uma troca de implementacao. Se entender, percebera continuidade entre os dois.
+
+\section{8. Uma leitura didatica da capacidade de representacao}\label{8-uma-leitura-didatica-da-capacidade-de-representacao}
+
+Uma forma util de resumir o artigo e a seguinte:
+
+\begin{itemize}
+\tightlist
+\item
+  memoria responde a pergunta "quanto do passado o modelo ainda carrega?";
+\item
+  nao linearidade responde a pergunta "como sinais se combinam de forma nao aditiva?";
+\item
+  capacidade de representacao responde a pergunta "quantas respostas dinamicas diferentes o sistema consegue sustentar?".
+\end{itemize}
+
+Essas tres dimensoes sao suficientes para interpretar boa parte do comportamento de um reservatorio.
+
+\section{9. Conclusao}\label{9-conclusao}
+
+Reservoir Computing funciona quando seu estado interno consegue reter passado, reagir de forma nao linear e fornecer uma representacao util para o readout. Isso nao garante vitoria em benchmark, mas fornece um quadro conceitual extremamente forte para pensar series temporais.
+
+Esse quadro agora nos permite dar um passo essencial: comparar RC com outras familias de modelos de forma justa, rigorosa e reproduzivel.
+
+\section{Entregaveis associados no repositorio}\label{entregaveis-associados-no-repositorio}
+
+\begin{itemize}
+\tightlist
+\item
+  implementacao do RC: \texttt{code/rc/model.py}
+\item
+  resultados do RC: \texttt{code/rc/RESULTS.md}
+\item
+  benchmark consolidado: \texttt{code/RESULTS.md}
+\end{itemize}
+
+\section{Referencias}\label{referencias}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Jaeger, H. The "echo state" approach to analysing and training recurrent neural networks.
+\item
+  Lukosevicius, M., Jaeger, H. Reservoir computing approaches to recurrent neural network training.
+\item
+  Maass, W., Natschlager, T., Markram, H. Real-time computing without stable states.
+\end{enumerate}
+
+\section*{Resultados Computacionais Associados}
+
+Os resultados computacionais associados a este artigo estao organizados na subpasta \texttt{computational\_results\_20260402\_222902/}, localizada dentro desta pasta \LaTeX. Esse diretorio contem o arquivo \texttt{REPORT.md}, tabelas em CSV e imagens comparativas apropriadas ao escopo do artigo.
+
+\end{document}

@@ -1,0 +1,11 @@
+metric,value
+n_total_days,1688
+train_days,1598
+test_days,90
+mean_sales,1583.9863744075828
+std_sales,729.8868000779896
+promotion_rate,0.6036729857819905
+zero_sales_rate,0.005924170616113744
+train_start,2013-01-01
+test_start,2017-05-18
+test_end,2017-08-15
